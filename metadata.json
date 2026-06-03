@@ -1,0 +1,8 @@
+{
+  "name": "ប្រព័ន្ធគ្រប់គ្រងវត្តមានគ្រូ",
+  "description": "ប្រព័ន្ធគ្រប់គ្រងវត្តមានគ្រូតាមរយៈការស្កេន QR Code សម្រាប់សាលាបឋមសិក្សាកំពង់ល្ពៅ និងសមកាលកម្មជាមួយ Google Sheets",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

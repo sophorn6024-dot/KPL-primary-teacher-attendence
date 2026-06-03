@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Kantumruy Pro", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Base style resets and scrollbars */
+html, body, #root {
+  font-family: var(--font-sans);
+  height: 100%;
+}
+
+/* Animations transition definitions */
+@keyframes slideUp {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Utility custom print declarations */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-teacher-badge, #printable-teacher-badge *,
+  #printable-daily-log, #printable-daily-log * {
+    visibility: visible;
+  }
+  #printable-teacher-badge, #printable-daily-log {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}

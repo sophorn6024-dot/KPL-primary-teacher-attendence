@@ -128,7 +128,7 @@ export default function Dashboard({ teachers, logs, onNavigate }: DashboardProps
 
           <div className="py-6 flex flex-col items-center">
             {/* Khmer Big Digital Clock */}
-            <span className="text-4xl md:text-5xl font-mono font-bold tracking-wider text-indigo-600 dark:text-indigo-400 drop-shadow-sm transition-colors tabular-nums">
+            <span className="text-3.5xl sm:text-4xl lg:text-3.5xl xl:text-4.5xl font-bold tracking-tight text-indigo-600 dark:text-indigo-400 drop-shadow-xs transition-colors tabular-nums">
               {khmerTimeStr}
             </span>
             <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500 mt-2 font-mono uppercase tracking-widest">

@@ -93,30 +93,32 @@ export default function QRAttendance({ teachers, logs, onAddLog }: QRAttendanceP
   };
 
   const tick = () => {
-    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+    if (!streamRef.current) {
       return;
     }
 
-    if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (context && videoRef.current.videoWidth > 0) {
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+      if (canvasRef.current) {
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (context && videoRef.current.videoWidth > 0) {
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: 'dontInvert',
-        });
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert',
+          });
 
-        if (code) {
-          handleDecodedId(code.data);
+          if (code) {
+            handleDecodedId(code.data);
+          }
         }
       }
     }
 
-    if (useCamera) {
+    if (streamRef.current) {
       requestAnimationFrame(tick);
     }
   };

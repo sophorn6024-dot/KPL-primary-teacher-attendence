@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import jsQR from 'jsqr';
 import { Teacher, AttendanceLog, Shift } from '../types';
-import { khmerNumber, formatKhmerDate } from '../utils';
+import { khmerNumber, formatKhmerDate, playBeep, playErrorBeep } from '../utils';
 import { 
   User, 
   Lock, 
@@ -23,7 +24,8 @@ import {
   Printer,
   ChevronRight,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Camera
 } from 'lucide-react';
 
 interface TeacherPortalProps {
@@ -57,6 +59,105 @@ export default function TeacherPortal({
   const [teacherIdInput, setTeacherIdInput] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
   const [authError, setAuthError] = useState('');
+
+  // Camera login states
+  const [isScanningQR, setIsScanningQR] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const stopQRLoginCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsScanningQR(false);
+  };
+
+  const startQRLoginCamera = () => {
+    setScanError(null);
+    setIsScanningQR(true);
+    setAuthError('');
+
+    setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute('playsinline', 'true');
+          videoRef.current.play();
+          requestAnimationFrame(tickQRLogin);
+        }
+      } catch (err: any) {
+        console.error('Teacher QR Login camera access error:', err);
+        setScanError('មិនអាចបើកកាមេរ៉ាបានទេ! សូមពិនិត្យមើលការអនុញ្ញាតសិទ្ធិកាមេរ៉ាក្នុងកម្មវិធីរុករក។');
+        setIsScanningQR(false);
+      }
+    }, 100);
+  };
+
+  const tickQRLogin = () => {
+    if (!streamRef.current) return;
+
+    if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+      if (canvasRef.current) {
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (context && videoRef.current.videoWidth > 0) {
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert',
+          });
+
+          if (code) {
+            handleQRLoginDecoded(code.data);
+            return;
+          }
+        }
+      }
+    }
+
+    if (streamRef.current) {
+      requestAnimationFrame(tickQRLogin);
+    }
+  };
+
+  const handleQRLoginDecoded = (id: string) => {
+    const cleanId = id.trim().toUpperCase();
+    const foundTeacher = teachers.find((t) => t.id.toUpperCase() === cleanId);
+
+    if (foundTeacher) {
+      playBeep();
+      // stop camera
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      setIsScanningQR(false);
+      onLogin(foundTeacher.id);
+    } else {
+      playErrorBeep();
+      setScanError(`កូដ QR "${id}" មិនត្រឹមត្រូវ ឬគ្មានក្នុងប្រព័ន្ធបុគ្គលិកឡើយ!`);
+    }
+  };
 
   // Leave Request Form inputs
   const [leaveDate, setLeaveDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -120,10 +221,11 @@ export default function TeacherPortal({
       currentTeacher.shift
     );
     setCheckInSuccess('បានកត់ត្រាវត្តមានផ្ទាល់ខ្លួនថ្ងៃនេះបានជោគជ័យ!');
-    setTimeout(() => setCheckInSuccess(''), 4500);
+    setTimeout(() => {
+      setCheckInSuccess('');
+    }, 4000);
   };
 
-  // Handle Leave Submission
   const handleLeaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentTeacher) return;
@@ -132,13 +234,16 @@ export default function TeacherPortal({
     onSetManualLog(
       currentTeacher.id,
       'ច្បាប់',
-      finalReason,
+      finalReason || 'សុំច្បាប់ផ្ទាល់ខ្លួន',
       leaveDate,
       currentTeacher.shift
     );
-    setLeaveSuccess(`បានផ្ញើពាក្យសុំច្បាប់ ${finalReason} សម្រាប់ថ្ងៃទី ${khmerNumber(leaveDate.replace(/-/g, '/'))} ដោយជោគជ័យ!`);
+
+    setLeaveSuccess('ការស្នើសុំច្បាប់ត្រូវបានកត់ត្រាក្នុងប្រព័ន្ធរួចរាល់!');
     setCustomReason('');
-    setTimeout(() => setLeaveSuccess(''), 4500);
+    setTimeout(() => {
+      setLeaveSuccess('');
+    }, 4000);
   };
 
   const handlePrint = () => {
@@ -162,22 +267,18 @@ export default function TeacherPortal({
             </h1>
           </div>
           <p className="text-indigo-100 text-xs md:text-sm leading-relaxed max-w-md">
-            សូមស្វាគមន៍មកកាន់ទំព័រឌីជីថលបុគ្គលិកសាលាបឋមសិក្សាកំពង់ល្ពៅ។ លោកគ្រូ-អ្នកគ្រូអាចចូលប្រើគណនីផ្ទាល់ខ្លួន ដើម្បី៖
+            សូមស្វាគមន៍មកកាន់ទំព័រឌីជីថលបុគ្គលិកសាលារបស់លោកគ្រូអ្នកគ្រូ។ នៅទីនេះ លោកគ្រូអ្នកគ្រូអាចសុំច្បាប់ ពិនិត្យប្រវត្តិនៃការចុះវត្តមាន និងព័ត៌មានលម្អិតផ្សេងៗ។
           </p>
-          <div className="space-y-3 pt-2 text-xs md:text-sm text-indigo-50">
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-5 h-5 text-indigo-200 shrink-0 mt-0.5" />
-              <p>ទាញយក កាតសម្គាល់ខ្លួន និង កូដ QR សម្រាប់ស្កេនវត្តមានប្រចាំថ្ងៃ</p>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-5 h-5 text-indigo-200 shrink-0 mt-0.5" />
-              <p>ពិនិត្យមើល របាយការណ៍ស្ថិតិវត្តមាន និង ប្រវត្តិចុះវត្តមានផ្ទាល់ខ្លួន</p>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-5 h-5 text-indigo-200 shrink-0 mt-0.5" />
-              <p>ផ្ញើពាក្យសុំច្បាប់ (Leave Request) ផ្ទាល់ខ្លួនទៅកាន់ គណៈគ្រប់គ្រងសាលា</p>
-            </div>
+        </div>
+
+        <div className="border-t border-white/10 pt-6 space-y-2">
+          <div className="flex items-center gap-2 text-indigo-200 text-xs font-semibold">
+            <ShieldCheck className="w-4 h-4 text-indigo-300" />
+            <span>ទិន្នន័យសុវត្ថិភាព និងរក្សាការសម្ងាត់</span>
           </div>
+          <p className="text-[11px] text-indigo-200/80 leading-normal">
+            ប្រព័ន្ធនេះការពារព័ត៌មានផ្ទាល់ខ្លួនរបស់លោកគ្រូអ្នកគ្រូដោយស្វ័យប្រវត្តិតាមរយៈបច្ចេកវិទ្យាចុងក្រោយ។
+          </p>
         </div>
       </div>
 
@@ -188,62 +289,135 @@ export default function TeacherPortal({
             ចូលគណនីគ្រូ (Teacher Login)
           </h3>
           <p className="text-xs text-slate-400 dark:text-zinc-500">
-            បញ្ចូលព័ត៌មានដែលបានចុះឈ្មោះក្នុងប្រព័ន្ធ
+            បញ្ចូលព័ត៌មានដែលបានចុះឈ្មោះ ឬស្កេនកូដ QR កាតផ្ទាល់ខ្លួនរបស់អ្នក
           </p>
         </div>
 
-        <form onSubmit={handleAuthSubmit} className="space-y-4">
-          
-          {/* ID input */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">
-              អត្តសញ្ញាណប័ណ្ណគ្រូ (Teacher ID) *
-            </label>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="ឧទាហរណ៍៖ KPL-001"
-                value={teacherIdInput}
-                onChange={(e) => setTeacherIdInput(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-xs text-slate-800 dark:text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 uppercase font-bold"
-                required
+        {isScanningQR ? (
+          <div className="space-y-4">
+            {/* Camera feed widget */}
+            <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-900 border-2 border-indigo-500 flex flex-col items-center justify-center">
+              <video
+                ref={videoRef}
+                className="absolute inset-0 w-full h-full object-cover"
+                playsInline
+                muted
               />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* QR scanner targeted visual border */}
+              <div className="absolute inset-0 border-[24px] border-slate-900/65 flex items-center justify-center pointer-events-none">
+                <div className="w-[180px] h-[180px] border-2 border-indigo-500 rounded-lg relative">
+                  {/* Glowing corners */}
+                  <div className="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-indigo-400 rounded-tl"></div>
+                  <div className="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-indigo-400 rounded-tr"></div>
+                  <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-indigo-400 rounded-bl"></div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-indigo-400 rounded-br"></div>
+                  {/* Laser effect */}
+                  <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 h-0.5 bg-gradient-to-r from-transparent via-indigo-400 to-transparent animate-pulse pointer-events-none"></div>
+                </div>
+              </div>
+
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-950/80 px-3 py-1.5 rounded-full backdrop-blur-xs flex items-center gap-1.5 text-[10px] text-indigo-400 font-bold border border-indigo-500/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>កំពុងស្វែងរកកូដ QR គណនីគ្រូ...</span>
+              </div>
             </div>
+
+            {scanError && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-xl text-xs text-red-650 dark:text-red-400 font-bold flex gap-2">
+                <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                <span>{scanError}</span>
+              </div>
+            )}
+
+            <button
+              onClick={stopQRLoginCamera}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-slate-700 dark:text-zinc-300 font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              បោះបង់ការស្កេន (Cancel Scan)
+            </button>
           </div>
+        ) : (
+          <>
+            {/* Quick QR scanning option */}
+            <button
+              onClick={startQRLoginCamera}
+              className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/60 border border-indigo-100/50 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center gap-2 transition duration-200 cursor-pointer text-xs font-extrabold shadow-xs hover:scale-[1.01] hover:shadow-sm"
+            >
+              <QrCode className="w-5 h-5 text-indigo-500" /> ស្កេន កូដ QR កាតដើម្បីចូល (Scan QR to Login)
+            </button>
 
-          {/* Password/Phone input */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">
-              លេខទូរស័ព្ទសុវត្ថិភាព (Registered Phone Number) *
-            </label>
-            <div className="relative">
-              <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="ឧទាហរណ៍៖ 0884640290"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-xs text-slate-800 dark:text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 font-bold"
-                required
-              />
+            {/* Traditional separator line */}
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-slate-100 dark:border-zinc-800/80"></div>
+              <span className="flex-shrink mx-4 text-[10px] text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider">
+                ឬប្រើព័ត៌មានខាងក្រោម
+              </span>
+              <div className="flex-grow border-t border-slate-100 dark:border-zinc-800/80"></div>
             </div>
-          </div>
 
-          {authError && (
-            <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-xl text-xs text-red-600 dark:text-red-400 font-bold flex gap-2">
-              <AlertCircle className="w-4.5 h-4.5 shrink-0" />
-              <span>{authError}</span>
-            </div>
-          )}
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              
+              {/* ID input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">
+                  អត្តសញ្ញាណប័ណ្ណគ្រូ (Teacher ID) *
+                </label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="ឧទាហរណ៍៖ KPL-001"
+                    value={teacherIdInput}
+                    onChange={(e) => setTeacherIdInput(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-xs text-slate-800 dark:text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 uppercase font-bold"
+                    required
+                  />
+                </div>
+              </div>
 
-          <button
-            type="submit"
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-2"
-          >
-            <Unlock className="w-4 h-4" /> ផ្ទៀងផ្ទាត់ និងចូលប្រព័ន្ធ <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </form>
+              {/* Password/Phone input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">
+                  លេខទូរស័ព្ទសុវត្ថិភាព (Registered Phone Number) *
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="ឧទាហរណ៍៖ 0884640290"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-800 rounded-xl pl-11 pr-4 py-3 text-xs text-slate-800 dark:text-zinc-200 font-mono focus:outline-none focus:border-indigo-500 font-bold"
+                    required
+                  />
+                </div>
+              </div>
+
+              {authError && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-xl text-xs text-red-650 dark:text-red-400 font-bold flex gap-2">
+                  <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              {scanError && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-xl text-xs text-red-650 dark:text-red-400 font-bold flex gap-2">
+                  <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                  <span>{scanError}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Unlock className="w-4 h-4" /> ផ្ទៀងផ្ទាត់ និងចូលប្រព័ន្ធ <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          </>
+        )}
 
         <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/60 text-center text-[10px] text-slate-400 leading-relaxed dark:text-zinc-500 font-sans">
           ក្នុងករណីលោកគ្រូអ្នកគ្រូបាត់បង់ ឬមិនចាំលេខសម្គាល់គណនី សូមទាក់ទងមកគណៈគ្រប់គ្រងសាលាគណនីដើម្បីពិនិត្យទិន្នន័យ។
